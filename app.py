@@ -50,8 +50,10 @@ st.title("🩺 Breast Cancer Detection Using SVM")
 
 st.write("Predict whether the cancer is Malignant or Benign")
 
+import os
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+df = pd.read_csv(os.path.join(BASE_DIR, "data.csv"))
 
-df = pd.read_csv(r"C:\Users\indun\Downloads\archive (15)\data.csv")
 
 
 df = df.drop(['id', 'Unnamed: 32'], axis=1)
