@@ -21,8 +21,9 @@ st.set_page_config(
 
 st.title("🌸 Iris Flower Classification Using SVM")
 
-df = pd.read_csv("../data/iris.csv")
-
+import os
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+df = pd.read_csv(os.path.join(BASE_DIR, "../data/iris.csv"))
 encoder = LabelEncoder()
 
 df['species'] = encoder.fit_transform(df['species'])
