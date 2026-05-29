@@ -49,7 +49,7 @@ st.sidebar.header("⚙️ Hyperparameters")
 n_estimators = st.sidebar.slider("Number of Estimators", 10, 300, 50, step=10)
 learning_rate = st.sidebar.slider("Learning Rate", 0.01, 2.0, 1.0, step=0.01)
 max_depth = st.sidebar.slider("Base Estimator Max Depth", 1, 10, 1)
-algorithm = st.sidebar.selectbox("Algorithm", ["SAMME"])
+
 test_size = st.sidebar.slider("Test Size", 0.1, 0.5, 0.2)
 random_state = st.sidebar.number_input("Random State", 0, 100, 42)
 
@@ -61,7 +61,6 @@ model = AdaBoostClassifier(
     estimator=base_estimator,
     n_estimators=n_estimators,
     learning_rate=learning_rate,
-    algorithm=algorithm,
     random_state=int(random_state)
 )
 model.fit(X_train, y_train)
