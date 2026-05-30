@@ -9,8 +9,7 @@ from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.ensemble import StackingRegressor, RandomForestRegressor, GradientBoostingRegressor
 from sklearn.tree import DecisionTreeRegressor
 from sklearn.neighbors import KNeighborsRegressor
-from sklearn.svm import SVR
-from sklearn.linear_model import LinearRegression, Ridge
+from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 st.set_page_config(
@@ -37,11 +36,19 @@ h1 { color: #1b5e20; text-align: center; }
 st.title("🏗️ Stacking Regressor - California Housing")
 st.write("Predict house prices using Stacking Ensemble with tunable hyperparameters")
 
-# Load dataset
-housing = fetch_california_housing()
-X = pd.DataFrame(housing.data, columns=housing.feature_names)
-y = pd.Series(housing.target, name="MedHouseVal")
+# Load and sample dataset for faster performance
+@st.cache_data
+def load_data():
+    housing = fetch_california_housing()
+    X = pd.DataFrame(housing.data, columns=housing.feature_names)
+    y = pd.Series(housing.target, name="MedHouseVal")
+    # Sample 3000 rows for faster loading
+    idx = np.random.RandomState(42).choice(len(X), 3000, replace=False)
+    X = X.iloc[idx].reset_index(drop=True)
+    y = y.iloc[idx].reset_index(drop=True)
+    return X, y
 
+X, y = load_data()
 df = X.copy()
 df["MedHouseVal"] = y
 
@@ -56,67 +63,76 @@ use_knn = st.sidebar.checkbox("KNN", value=True)
 knn_neighbors = st.sidebar.slider("KNN Neighbors", 1, 15, 5)
 
 use_rf = st.sidebar.checkbox("Random Forest", value=True)
-rf_estimators = st.sidebar.slider("RF Estimators", 10, 200, 50)
+rf_estimators = st.sidebar.slider("RF Estimators", 10, 100, 50)
 
 use_gbr = st.sidebar.checkbox("Gradient Boosting", value=True)
-gbr_estimators = st.sidebar.slider("GBR Estimators", 10, 200, 50)
+gbr_estimators = st.sidebar.slider("GBR Estimators", 10, 100, 50)
 
 st.sidebar.subheader("Meta Learner")
 meta_alpha = st.sidebar.slider("Meta Learner Alpha (Ridge)", 0.01, 10.0, 1.0)
-cv_folds = st.sidebar.slider("CV Folds", 2, 10, 5)
+cv_folds = st.sidebar.slider("CV Folds", 2, 5, 3)
 test_size = st.sidebar.slider("Test Size", 0.1, 0.5, 0.2)
 random_state = st.sidebar.number_input("Random State", 0, 100, 42)
 
-# Build base learners
-base_learners = []
-if use_dt:
-    base_learners.append(("Decision Tree", DecisionTreeRegressor(max_depth=dt_max_depth, random_state=int(random_state))))
-if use_knn:
-    base_learners.append(("KNN", KNeighborsRegressor(n_neighbors=knn_neighbors)))
-if use_rf:
-    base_learners.append(("Random Forest", RandomForestRegressor(n_estimators=rf_estimators, random_state=int(random_state))))
-if use_gbr:
-    base_learners.append(("Gradient Boosting", GradientBoostingRegressor(n_estimators=gbr_estimators, random_state=int(random_state))))
+# Cache model training
+@st.cache_resource
+def train_model(use_dt, dt_max_depth, use_knn, knn_neighbors,
+                use_rf, rf_estimators, use_gbr, gbr_estimators,
+                meta_alpha, cv_folds, test_size, random_state):
 
-if len(base_learners) == 0:
+    base_learners = []
+    if use_dt:
+        base_learners.append(("Decision Tree", DecisionTreeRegressor(max_depth=dt_max_depth, random_state=random_state)))
+    if use_knn:
+        base_learners.append(("KNN", KNeighborsRegressor(n_neighbors=knn_neighbors)))
+    if use_rf:
+        base_learners.append(("Random Forest", RandomForestRegressor(n_estimators=rf_estimators, random_state=random_state)))
+    if use_gbr:
+        base_learners.append(("Gradient Boosting", GradientBoostingRegressor(n_estimators=gbr_estimators, random_state=random_state)))
+
+    meta_learner = Ridge(alpha=meta_alpha)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
+
+    model = StackingRegressor(
+        estimators=base_learners,
+        final_estimator=meta_learner,
+        cv=cv_folds
+    )
+    model.fit(X_train, y_train)
+    return model, X_train, X_test, y_train, y_test, base_learners
+
+if not (use_dt or use_knn or use_rf or use_gbr):
     st.error("Please select at least one base learner!")
     st.stop()
 
-# Meta learner
-meta_learner = Ridge(alpha=meta_alpha)
+with st.spinner("Training Stacking model... please wait ⏳"):
+    model, X_train, X_test, y_train, y_test, base_learners = train_model(
+        use_dt, dt_max_depth, use_knn, knn_neighbors,
+        use_rf, rf_estimators, use_gbr, gbr_estimators,
+        meta_alpha, cv_folds, test_size, int(random_state)
+    )
 
-# Train Stacking model
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=int(random_state))
-
-model = StackingRegressor(
-    estimators=base_learners,
-    final_estimator=meta_learner,
-    cv=cv_folds
-)
-model.fit(X_train, y_train)
 y_pred = model.predict(X_test)
 
 # Metrics
 mae = mean_absolute_error(y_test, y_pred)
 mse = mean_squared_error(y_test, y_pred)
 r2 = r2_score(y_test, y_pred)
-cv_scores = cross_val_score(model, X, y, cv=3, scoring="r2")
 
 st.subheader("📊 Model Performance")
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3 = st.columns(3)
 col1.metric("MAE", f"{mae:.4f}")
 col2.metric("MSE", f"{mse:.4f}")
 col3.metric("R² Score", f"{r2:.4f}")
-col4.metric("CV R² Mean", f"{cv_scores.mean():.4f}")
 
 # Individual model comparison
 st.subheader("📊 Base Learners vs Stacking Comparison")
 comparison_data = []
 for name, reg in base_learners:
     reg.fit(X_train, y_train)
-    r2_score_val = r2_score(y_test, reg.predict(X_test))
-    comparison_data.append({"Model": name, "R² Score": r2_score_val})
-comparison_data.append({"Model": "Stacking", "R² Score": r2})
+    r2_val = r2_score(y_test, reg.predict(X_test))
+    comparison_data.append({"Model": name, "R² Score": round(r2_val, 4)})
+comparison_data.append({"Model": "Stacking", "R² Score": round(r2, 4)})
 comparison_df = pd.DataFrame(comparison_data).sort_values("R² Score", ascending=False)
 st.dataframe(comparison_df)
 
@@ -157,30 +173,19 @@ ax1.set_ylabel("Predicted")
 ax1.set_title("Actual vs Predicted House Values")
 st.pyplot(fig1)
 
-# Cross Validation
-st.subheader("📈 Cross Validation R² Scores")
-fig2, ax2 = plt.subplots(figsize=(8, 4))
-ax2.bar(range(1, len(cv_scores)+1), cv_scores, color="#1b5e20")
-ax2.axhline(cv_scores.mean(), color="red", linestyle="--", label=f"Mean: {cv_scores.mean():.4f}")
-ax2.set_xlabel("Fold")
-ax2.set_ylabel("R² Score")
-ax2.set_title("Cross Validation R² Scores")
-ax2.legend()
-st.pyplot(fig2)
-
 # Distribution
 st.subheader("📈 House Value Distribution")
-fig3, ax3 = plt.subplots(figsize=(8, 4))
-sns.histplot(y, kde=True, color="#1b5e20", ax=ax3)
-ax3.set_title("House Value Distribution")
-st.pyplot(fig3)
+fig2, ax2 = plt.subplots(figsize=(8, 4))
+sns.histplot(y, kde=True, color="#1b5e20", ax=ax2)
+ax2.set_title("House Value Distribution")
+st.pyplot(fig2)
 
 # Correlation Heatmap
 st.subheader("🔥 Correlation Heatmap")
-fig4, ax4 = plt.subplots(figsize=(10, 6))
-sns.heatmap(df.corr(), annot=True, cmap="Greens", fmt=".2f", ax=ax4)
-ax4.set_title("Correlation Heatmap")
-st.pyplot(fig4)
+fig3, ax3 = plt.subplots(figsize=(10, 6))
+sns.heatmap(df.corr(), annot=True, cmap="Greens", fmt=".2f", ax=ax3)
+ax3.set_title("Correlation Heatmap")
+st.pyplot(fig3)
 
 # Comparison Table
 st.subheader("📋 Actual vs Predicted Table")
